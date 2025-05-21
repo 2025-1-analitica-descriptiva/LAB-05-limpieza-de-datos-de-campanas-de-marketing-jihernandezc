@@ -4,6 +4,10 @@ Escriba el codigo que ejecute la accion solicitada.
 
 # pylint: disable=import-outside-toplevel
 
+import os
+import zipfile
+import pandas as pd
+from glob import glob
 
 def clean_campaign_data():
     """
@@ -50,8 +54,74 @@ def clean_campaign_data():
 
     """
 
-    return
+    input_path = "files/input/"
+    output_path = "files/output/"
 
+    os.makedirs(output_path, exist_ok=True)
+
+    zip_files = glob(os.path.join(input_path, "*.zip"))
+
+    dataframes = []
+    for zip_file in zip_files:
+        with zipfile.ZipFile(zip_file) as archive:
+            for name in archive.namelist():
+                if name.endswith(".csv"):
+                    with archive.open(name) as f:
+                        df = pd.read_csv(f)
+                        dataframes.append(df)
+
+    df_all = pd.concat(dataframes, ignore_index=True)
+
+    # CLIENT
+    df_client = df_all[[
+        "client_id", "age", "job", "marital", "education",
+        "credit_default", "mortgage"
+    ]].copy()
+
+    df_client["job"] = df_client["job"].str.replace(".", "", regex=False).str.replace("-", "_", regex=False)
+    df_client["education"] = df_client["education"].str.replace(".", "_", regex=False).replace("unknown", pd.NA)
+    df_client["credit_default"] = (df_client["credit_default"].astype(str).str.lower() == "yes").astype(int)
+    df_client["mortgage"] = (df_client["mortgage"].astype(str).str.lower() == "yes").astype(int)
+
+    df_client.to_csv(os.path.join(output_path, "client.csv"), index=False)
+
+    # CAMPAIGN
+    df_campaign = df_all[[
+        "client_id", "number_contacts", "contact_duration",
+        "previous_campaign_contacts", "previous_outcome",
+        "campaign_outcome", "day", "month"
+    ]].copy()
+
+    df_campaign["previous_outcome"] = (df_campaign["previous_outcome"].astype(str).str.lower() == "success").astype(int)
+    df_campaign["campaign_outcome"] = (df_campaign["campaign_outcome"].astype(str).str.lower() == "yes").astype(int)
+
+    month_map = {
+        "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+        "may": "05", "jun": "06", "jul": "07", "aug": "08",
+        "sep": "09", "oct": "10", "nov": "11", "dec": "12"
+    }
+
+    df_campaign["last_contact_date"] = pd.to_datetime(
+        "2022-" + df_campaign["month"].str.lower().map(month_map) + "-" + df_campaign["day"].astype(str),
+        errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+
+    df_campaign = df_campaign[[
+        "client_id", "number_contacts", "contact_duration",
+        "previous_campaign_contacts", "previous_outcome",
+        "campaign_outcome", "last_contact_date"
+    ]]
+
+    df_campaign.to_csv(os.path.join(output_path, "campaign.csv"), index=False)
+
+    # ECONOMICS
+    df_economics = df_all[[
+        "client_id", "cons_price_idx", "euribor_three_months"
+    ]].copy()
+
+    df_economics.to_csv(os.path.join(output_path, "economics.csv"), index=False)
+
+    return
 
 if __name__ == "__main__":
     clean_campaign_data()
